@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "esp32-oled",
+			"path": "../../Documents/PlatformIO/Projects/esp32-oled"
+		}
+	],
+	"settings": {}
+}
