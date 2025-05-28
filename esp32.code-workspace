@@ -10,6 +10,10 @@
 		{
 			"name": "c3-oled",
 			"path": "c3-oled/c3-oled"
+		},
+		{
+			"name": "c3-oled",
+			"path": "esp32-c3-devkitm-1/c3-oled"
 		}
 	],
 	"settings": {}
