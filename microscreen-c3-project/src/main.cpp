@@ -1,3 +1,4 @@
+#include <gpio_viewer.h> // GPIO Viewer - must be first include
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -55,10 +56,9 @@ const unsigned long WIFI_TIMEOUT = 20000; // 20 seconds per network
 #define I2C_SCL 7 // GPIO7 (D5 on SuperMini)
 #define OLED_ADDR 0x3C
 
-// Boot Button Configuration (for manual panel cycling)
-#define BOOT_BUTTON_PIN 9 // GPIO9 on ESP32-C3 (built-in boot button)
+// Button Configuration
+#define RESET_BUTTON_PIN 3 // GPIO3 - Reset/Change screen button
 #define BUTTON_DEBOUNCE_DELAY 50 // ms
-#define BUTTON_LONG_PRESS_TIME 5000 // 5 seconds for mode toggle
 
 // Initialize display object
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -79,15 +79,13 @@ DisplayMode currentDisplay = DISPLAY_ANGY; // Start with the first meme panel
 unsigned long lastDisplayChange = 0;
 const unsigned long DISPLAY_INTERVAL = 5000; // 5 seconds per panel
 
-// Auto-cycle mode configuration
-bool autoCycleMode = true; // Start with auto-cycle enabled
-const unsigned long AUTO_CYCLE_INTERVAL = 10000; // 10 seconds per panel in auto mode
+// Panel cycling configuration
+const unsigned long AUTO_CYCLE_INTERVAL = 10000; // 10 seconds per panel
 
-// Button state tracking
-bool buttonPressed = false;
-bool buttonLongPress = false;
-unsigned long buttonPressTime = 0;
-unsigned long lastButtonCheck = 0;
+// Reset button state tracking
+bool resetButtonLastState = HIGH;
+unsigned long resetButtonLastChange = 0;
+bool resetButtonProcessed = false;
 
 // Add buffer for loading raw bitmaps
 constexpr size_t BITMAP_BUF_SIZE = SCREEN_WIDTH * SCREEN_HEIGHT / 8;
@@ -119,6 +117,9 @@ String connectedSSID = "";
 unsigned long lastWiFiCheck = 0;
 const unsigned long WIFI_CHECK_INTERVAL = 30000; // Check WiFi every 30 seconds
 
+// GPIOViewer object for real-time GPIO monitoring
+GPIOViewer gpioViewer;
+
 // Function prototypes
 void displayPanelWithRandomTransition(int memeIndex);
 void displayWiFiPanelWithRandomTransition();
@@ -128,9 +129,6 @@ void fadeTransition(const unsigned char* newBitmap, uint16_t width, uint16_t hei
 void wipeTransition(const unsigned char* newBitmap, uint16_t width, uint16_t height, bool vertical);
 void spiralTransition(const unsigned char* newBitmap, uint16_t width, uint16_t height);
 void cyclePanels();
-void handleButtonPress();
-void checkButton();
-void toggleAutoCycleMode();
 void displayModeMessage(const char* message, const char* submessage = nullptr);
 bool connectToWiFi();
 void startAPMode();
@@ -138,13 +136,43 @@ void displayWiFiStatus();
 void checkWiFiStatus();
 void displayWiFiInfoScreen();
 
+// Reset button function
+void checkResetButton();
+
 void setup()
 {
   Serial.begin(115200);
   randomSeed(analogRead(0)); // Initialize random seed for pixelated transitions
   
-  // Initialize boot button
-  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  // Initialize reset button with internal pull-up resistor
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+  
+  // Debug: Check initial button state
+  Serial.println("🎮 Button Initialization:");
+  Serial.print("Reset Button (GPIO3) initial state: ");
+  Serial.println(digitalRead(RESET_BUTTON_PIN) ? "HIGH" : "LOW");
+  Serial.println("Reset button configured with INPUT_PULLUP");
+  
+  // Button test - wait for user to test the reset button
+  Serial.println("🧪 BUTTON TEST MODE - Press reset button to test:");
+  Serial.println("Testing for 10 seconds...");
+  unsigned long testStart = millis();
+  bool resetPressed = false;
+
+  while (millis() - testStart < 10000) {
+    bool reset = digitalRead(RESET_BUTTON_PIN);
+
+    if (!reset && !resetPressed) {
+      Serial.println("Reset Button (GPIO3) pressed LOW");
+      resetPressed = true; // Prevent continuous printing
+    } else if (reset && resetPressed) {
+      Serial.println("Reset Button (GPIO3) released HIGH");
+      resetPressed = false;
+    }
+    
+    delay(50); // Short delay for debouncing and to avoid spamming serial too much
+  }
+  Serial.println("Button test complete.");
   
   // Initialize I2C and OLED Display
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -255,6 +283,18 @@ void setup()
   display.display();
   delay(1500);
 
+  // Show button instructions
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(20, 15);
+  display.print("Button Controls:");
+  display.setCursor(15, 30);
+  display.print("Reset: Change Screen");
+  display.setCursor(10, 45);
+  display.print("Auto-cycles panels");
+  display.display();
+  delay(3000);
+
   // Start with first meme panel, no transition, just display it
   displayPanelWithRandomTransition(currentDisplay);
   lastDisplayChange = millis();
@@ -264,6 +304,53 @@ void setup()
   Serial.print("Total meme panels loaded: "); Serial.println(TOTAL_MEMES);
   Serial.print("Displaying panel: "); Serial.println(memes[currentDisplay].title);
   Serial.println("Image rendering using display.drawBitmap().");
+  Serial.println("🎮 Controls:");
+  Serial.println("   Reset Button (GPIO3): Change screen immediately");
+  Serial.println("   Auto-cycle: Panels change every 10 seconds");
+  
+  // Initialize GPIOViewer for real-time GPIO monitoring (must be at end of setup)
+  if (wifiConnected && !isAPMode) {
+    Serial.println("🔍 Initializing GPIOViewer for GPIO monitoring...");
+    
+    // Set a faster sampling interval for better button debugging (25ms)
+    gpioViewer.setSamplingInterval(25); // 25ms sampling interval for responsive monitoring
+    gpioViewer.setPort(8080); // Default port 8080
+    
+    // Configure GPIOViewer to monitor our button pins specifically
+    // Note: GPIOViewer will automatically detect and monitor all GPIO pins
+    
+    gpioViewer.begin();
+    
+    Serial.println("🔍 GPIOViewer started successfully!");
+    Serial.println("🔍 Web interface: http://" + WiFi.localIP().toString() + ":8080");
+    Serial.println("🔍 Monitor reset button in real-time:");
+    Serial.println("🔍   - GPIO3 (Reset Button)"); 
+    Serial.println("🔍   - GPIO6 (I2C SDA)");
+    Serial.println("🔍   - GPIO7 (I2C SCL)");
+    Serial.println("🔍 Press reset button to see real-time GPIO state changes!");
+    
+    // Display GPIOViewer info on OLED briefly
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 5);
+    display.print("GPIOViewer Ready!");
+    display.setCursor(0, 20);
+    display.print("Web: ");
+    display.print(WiFi.localIP());
+    display.setCursor(0, 35);
+    display.print("Port: 8080");
+    display.setCursor(0, 50);
+    display.print("Monitor GPIO 3");
+    display.display();
+    delay(3000);
+    
+  } else {
+    Serial.println("🔍 GPIOViewer skipped - WiFi not connected or in AP mode");
+    if (isAPMode) {
+      Serial.println("🔍 Note: GPIOViewer requires station mode (not AP mode)");
+      Serial.println("🔍 Connect to a WiFi network to enable GPIO monitoring");
+    }
+  }
 }
 
 void loop()
@@ -271,12 +358,33 @@ void loop()
   // Handle OTA updates
   ArduinoOTA.handle();
   
-  // Check button input
-  checkButton();
+  // Check reset button input
+  checkResetButton();
   
-  // Check if it's time to change panel (only in auto-cycle mode)
-  unsigned long currentInterval = autoCycleMode ? AUTO_CYCLE_INTERVAL : DISPLAY_INTERVAL;
-  if (autoCycleMode && millis() - lastDisplayChange >= currentInterval)
+  // Debug: Print reset button state every 2 seconds
+  static unsigned long lastButtonDebug = 0;
+  if (millis() - lastButtonDebug > 2000) {
+    Serial.print("Reset button state: ");
+    Serial.print(digitalRead(RESET_BUTTON_PIN) ? "H" : "L");
+    
+    // Additional debug info for processed state
+    Serial.print(" | Processed: ");
+    Serial.print(resetButtonProcessed ? "Y" : "N");
+    
+    // GPIOViewer reminder
+    if (wifiConnected && !isAPMode) {
+      Serial.print(" | GPIOViewer: http://");
+      Serial.print(WiFi.localIP());
+      Serial.print(":8080");
+    }
+    
+    Serial.println();
+    lastButtonDebug = millis();
+  }
+  
+  // Check if it's time to change panel (auto-cycle mode)
+  unsigned long currentInterval = AUTO_CYCLE_INTERVAL;
+  if (millis() - lastDisplayChange >= currentInterval)
   {
     cyclePanels();
   }
@@ -906,76 +1014,6 @@ void displayWiFiInfoScreen() {
   display.display();
 }
 
-// Button handling functions
-void checkButton() {
-  bool currentButtonState = digitalRead(BOOT_BUTTON_PIN) == LOW; // Button is active LOW
-  
-  // Debounce check
-  if (millis() - lastButtonCheck < BUTTON_DEBOUNCE_DELAY) {
-    return;
-  }
-  lastButtonCheck = millis();
-  
-  // Button press detection
-  if (currentButtonState && !buttonPressed) {
-    // Button just pressed
-    buttonPressed = true;
-    buttonPressTime = millis();
-    buttonLongPress = false;
-    Serial.println("🔘 Boot button pressed");
-  }
-  
-  // Button release detection
-  if (!currentButtonState && buttonPressed) {
-    // Button just released
-    buttonPressed = false;
-    unsigned long pressDuration = millis() - buttonPressTime;
-    
-    if (buttonLongPress) {
-      // Long press was already handled
-      Serial.println("🔘 Boot button released after long press");
-    } else if (pressDuration >= BUTTON_LONG_PRESS_TIME) {
-      // This shouldn't happen as long press should be detected while held
-      Serial.println("🔘 Boot button released after long duration");
-    } else {
-      // Short press - cycle to next panel
-      Serial.println("🔘 Boot button short press - cycling panel");
-      handleButtonPress();
-    }
-  }
-  
-  // Long press detection while button is held
-  if (buttonPressed && !buttonLongPress) {
-    unsigned long pressDuration = millis() - buttonPressTime;
-    if (pressDuration >= BUTTON_LONG_PRESS_TIME) {
-      buttonLongPress = true;
-      Serial.println("🔘 Boot button long press detected - toggling auto-cycle mode");
-      toggleAutoCycleMode();
-    }
-  }
-}
-
-void handleButtonPress() {
-  // Manual panel cycling - cycle to next panel immediately
-  cyclePanels();
-  Serial.println("📱 Manual panel cycle triggered");
-}
-
-void toggleAutoCycleMode() {
-  autoCycleMode = !autoCycleMode;
-  
-  if (autoCycleMode) {
-    Serial.println("🔄 Auto-Cycle Mode ACTIVATED!");
-    displayModeMessage("Auto-Cycle Mode", "ACTIVATED :O");
-  } else {
-    Serial.println("⏸️ Auto-Cycle Mode DEACTIVATED!");
-    displayModeMessage("Aw shit, time to", "Ole' Yeller Auto-Cycle Mode...");
-  }
-  
-  // Reset the display timer so the mode message shows for a bit
-  lastDisplayChange = millis();
-}
-
 void displayModeMessage(const char* message, const char* submessage) {
   display.clearDisplay();
   display.setTextSize(1);
@@ -1001,4 +1039,33 @@ void displayModeMessage(const char* message, const char* submessage) {
   
   display.display();
   delay(2000); // Show the message for 2 seconds
+}
+
+// Reset button handling with debouncing
+void checkResetButton() {
+  unsigned long currentTime = millis();
+  
+  // Read current button state
+  bool resetButtonState = digitalRead(RESET_BUTTON_PIN);
+  
+  // Reset Button Logic
+  if (resetButtonState != resetButtonLastState) {
+    resetButtonLastChange = currentTime;
+    resetButtonProcessed = false;
+    Serial.print("Reset button state changed to: ");
+    Serial.println(resetButtonState ? "HIGH" : "LOW");
+  }
+  
+  if (!resetButtonProcessed && (currentTime - resetButtonLastChange) > BUTTON_DEBOUNCE_DELAY) {
+    if (resetButtonState == LOW && resetButtonLastState == HIGH) {
+      // Button press detected (falling edge after debounce)
+      Serial.println("RESET BUTTON PRESSED!");
+      resetButtonProcessed = true;
+      
+      // Immediately cycle to the next panel
+      cyclePanels();
+      Serial.println("Panel changed by reset button");
+    }
+  }
+  resetButtonLastState = resetButtonState;
 }

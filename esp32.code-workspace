@@ -1,20 +1,17 @@
 {
-	"folders": [
-		{
-			"path": "."
-		},
-		{
-			"name": "esp32-oled",
-			"path": "../../Documents/PlatformIO/Projects/esp32-oled"
-		},
-		{
-			"name": "c3-oled",
-			"path": "c3-oled/c3-oled"
-		},
-		{
-			"name": "c3-oled",
-			"path": "esp32-c3-devkitm-1/c3-oled"
-		}
-	],
-	"settings": {}
+    "folders": [
+        {
+            "name": "s3-wroom",
+			"path": "s3-wroom"
+        },
+        {
+            "name": "microscreen-c3-project",
+            "path": "microscreen-c3-project"
+        }
+    ],
+    "settings": {
+        "files.associations": {
+            "*.txt": "cpp"
+        }
+    }
 }
