@@ -58,7 +58,20 @@ const unsigned long WIFI_TIMEOUT = 20000; // 20 seconds per network
 
 // Button Configuration
 #define RESET_BUTTON_PIN 3 // GPIO3 - Reset/Change screen button
+#define MENU_BUTTON_PIN 2  // GPIO2 - Menu navigation button (new)
+#define ONBOARD_BUTTON_PIN 9 // GPIO9 - Onboard boot/user button
 #define BUTTON_DEBOUNCE_DELAY 50 // ms
+
+// LED Configuration
+#define ONBOARD_LED_PIN 8 // GPIO8 - Onboard red LED
+#define LED_FLASH_DURATION 200 // ms - Duration for LED flash
+
+// Battery Monitoring Configuration
+#define BATTERY_ADC_PIN 0 // GPIO0 - Battery voltage monitoring (ADC1_CH0)
+#define VOLTAGE_DIVIDER_RATIO 2.0 // Adjust based on your voltage divider circuit
+#define BATTERY_MAX_VOLTAGE 4.2 // Maximum battery voltage (4.2V for Li-ion)
+#define BATTERY_MIN_VOLTAGE 3.0 // Minimum usable battery voltage
+#define BATTERY_SAMPLE_COUNT 10 // Number of samples to average for stable reading
 
 // Initialize display object
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -72,20 +85,53 @@ enum DisplayMode
   DISPLAY_KORBY,     // Meme panel 4
   DISPLAY_SMUDGE,    // Meme panel 5
   DISPLAY_WAT,       // Meme panel 6
-  DISPLAY_WIFI_INFO  // WiFi information panel
+  DISPLAY_WIFI_INFO, // WiFi information panel
+  DISPLAY_BATTERY,   // Battery status panel
+  DISPLAY_SYSTEM_INFO // System information panel
+};
+
+// Menu system configuration
+enum MenuMode
+{
+  MENU_NORMAL,    // Normal panel cycling mode
+  MENU_BATTERY,   // Battery monitoring submenu
+  MENU_SYSTEM     // System information submenu
 };
 
 DisplayMode currentDisplay = DISPLAY_ANGY; // Start with the first meme panel
+MenuMode currentMenu = MENU_NORMAL; // Start in normal mode
 unsigned long lastDisplayChange = 0;
 const unsigned long DISPLAY_INTERVAL = 5000; // 5 seconds per panel
 
 // Panel cycling configuration
 const unsigned long AUTO_CYCLE_INTERVAL = 10000; // 10 seconds per panel
+const unsigned long MENU_TIMEOUT = 30000; // 30 seconds before returning to normal mode
 
 // Reset button state tracking
 bool resetButtonLastState = HIGH;
 unsigned long resetButtonLastChange = 0;
 bool resetButtonProcessed = false;
+
+// Menu button state tracking
+bool menuButtonLastState = HIGH;
+unsigned long menuButtonLastChange = 0;
+bool menuButtonProcessed = false;
+unsigned long lastMenuActivity = 0;
+
+// Onboard button state tracking
+bool onboardButtonLastState = HIGH;
+unsigned long onboardButtonLastChange = 0;
+bool onboardButtonProcessed = false;
+
+// LED control variables
+bool ledState = false;
+unsigned long ledFlashStartTime = 0;
+
+// Battery monitoring variables
+float batteryVoltage = 0.0;
+int batteryPercentage = 0;
+unsigned long lastBatteryRead = 0;
+const unsigned long BATTERY_READ_INTERVAL = 1000; // Read battery every second
 
 // Add buffer for loading raw bitmaps
 constexpr size_t BITMAP_BUF_SIZE = SCREEN_WIDTH * SCREEN_HEIGHT / 8;
@@ -135,6 +181,18 @@ void startAPMode();
 void displayWiFiStatus();
 void checkWiFiStatus();
 void displayWiFiInfoScreen();
+void checkResetButton();
+void checkMenuButton();
+void checkOnboardButton();
+void flashLED();
+void updateLED();
+void readBatteryVoltage();
+float getBatteryVoltage();
+int getBatteryPercentage();
+void displayBatteryPanel();
+void displaySystemInfoPanel();
+void handleMenuNavigation();
+void displayWiFiInfoScreen();
 
 // Reset button function
 void checkResetButton();
@@ -142,25 +200,53 @@ void checkResetButton();
 void setup()
 {
   Serial.begin(115200);
-  randomSeed(analogRead(0)); // Initialize random seed for pixelated transitions
+  randomSeed(analogRead(BATTERY_ADC_PIN)); // Initialize random seed using battery ADC pin
   
-  // Initialize reset button with internal pull-up resistor
+  // Initialize buttons with internal pull-up resistors
   pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(MENU_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(ONBOARD_BUTTON_PIN, INPUT_PULLUP);
   
-  // Debug: Check initial button state
+  // Initialize LED pin and turn it off by default
+  pinMode(ONBOARD_LED_PIN, OUTPUT);
+  digitalWrite(ONBOARD_LED_PIN, LOW);  // Turn LED off by default
+  
+  // Initialize ADC for battery monitoring
+  analogReadResolution(12); // Set ADC resolution to 12 bits (0-4095)
+  
+  // Debug: Check initial button states
   Serial.println("🎮 Button Initialization:");
   Serial.print("Reset Button (GPIO3) initial state: ");
   Serial.println(digitalRead(RESET_BUTTON_PIN) ? "HIGH" : "LOW");
-  Serial.println("Reset button configured with INPUT_PULLUP");
+  Serial.print("Menu Button (GPIO2) initial state: ");
+  Serial.println(digitalRead(MENU_BUTTON_PIN) ? "HIGH" : "LOW");
+  Serial.print("Onboard Button (GPIO9) initial state: ");
+  Serial.println(digitalRead(ONBOARD_BUTTON_PIN) ? "HIGH" : "LOW");
+  Serial.println("Buttons configured with INPUT_PULLUP");
+  Serial.println("💡 LED Initialization:");
+  Serial.print("Onboard LED (GPIO8) turned OFF by default");
+  Serial.println();
   
-  // Button test - wait for user to test the reset button
-  Serial.println("🧪 BUTTON TEST MODE - Press reset button to test:");
-  Serial.println("Testing for 10 seconds...");
+  // Initial battery reading
+  readBatteryVoltage();
+  Serial.print("🔋 Initial battery voltage: ");
+  Serial.print(batteryVoltage, 2);
+  Serial.print("V (");
+  Serial.print(batteryPercentage);
+  Serial.println("%)");
+  
+  // Button test - wait for user to test buttons
+  Serial.println("🧪 BUTTON TEST MODE - Press buttons to test:");
+  Serial.println("Testing for 10 seconds... (includes LED flash test)");
   unsigned long testStart = millis();
   bool resetPressed = false;
+  bool menuPressed = false;
+  bool onboardPressed = false;
 
   while (millis() - testStart < 10000) {
     bool reset = digitalRead(RESET_BUTTON_PIN);
+    bool menu = digitalRead(MENU_BUTTON_PIN);
+    bool onboard = digitalRead(ONBOARD_BUTTON_PIN);
 
     if (!reset && !resetPressed) {
       Serial.println("Reset Button (GPIO3) pressed LOW");
@@ -169,6 +255,26 @@ void setup()
       Serial.println("Reset Button (GPIO3) released HIGH");
       resetPressed = false;
     }
+    
+    if (!menu && !menuPressed) {
+      Serial.println("Menu Button (GPIO2) pressed LOW");
+      menuPressed = true; // Prevent continuous printing
+    } else if (menu && menuPressed) {
+      Serial.println("Menu Button (GPIO2) released HIGH");
+      menuPressed = false;
+    }
+    
+    if (!onboard && !onboardPressed) {
+      Serial.println("Onboard Button (GPIO9) pressed LOW - FLASHING LED!");
+      flashLED(); // Flash LED when onboard button is pressed
+      onboardPressed = true; // Prevent continuous printing
+    } else if (onboard && onboardPressed) {
+      Serial.println("Onboard Button (GPIO9) released HIGH");
+      onboardPressed = false;
+    }
+    
+    // Update LED state (handle LED flash timing)
+    updateLED();
     
     delay(50); // Short delay for debouncing and to avoid spamming serial too much
   }
@@ -305,8 +411,9 @@ void setup()
   Serial.print("Displaying panel: "); Serial.println(memes[currentDisplay].title);
   Serial.println("Image rendering using display.drawBitmap().");
   Serial.println("🎮 Controls:");
-  Serial.println("   Reset Button (GPIO3): Change screen immediately");
-  Serial.println("   Auto-cycle: Panels change every 10 seconds");
+  Serial.println("   Reset Button (GPIO3): Change panel/navigate in menu");
+  Serial.println("   Menu Button (GPIO2): Enter menu/back to normal mode");
+  Serial.println("   Auto-cycle: Panels change every 10 seconds (normal mode)");
   
   // Initialize GPIOViewer for real-time GPIO monitoring (must be at end of setup)
   if (wifiConnected && !isAPMode) {
@@ -323,11 +430,13 @@ void setup()
     
     Serial.println("🔍 GPIOViewer started successfully!");
     Serial.println("🔍 Web interface: http://" + WiFi.localIP().toString() + ":8080");
-    Serial.println("🔍 Monitor reset button in real-time:");
+    Serial.println("🔍 Monitor buttons and battery in real-time:");
+    Serial.println("🔍   - GPIO2 (Menu Button)");
     Serial.println("🔍   - GPIO3 (Reset Button)"); 
+    Serial.println("🔍   - GPIO0 (Battery ADC)");
     Serial.println("🔍   - GPIO6 (I2C SDA)");
     Serial.println("🔍   - GPIO7 (I2C SCL)");
-    Serial.println("🔍 Press reset button to see real-time GPIO state changes!");
+    Serial.println("🔍 Press buttons to see real-time GPIO state changes!");
     
     // Display GPIOViewer info on OLED briefly
     display.clearDisplay();
@@ -358,18 +467,35 @@ void loop()
   // Handle OTA updates
   ArduinoOTA.handle();
   
-  // Check reset button input
+  // Check button inputs
   checkResetButton();
+  checkMenuButton();
+  checkOnboardButton();
   
-  // Debug: Print reset button state every 2 seconds
-  static unsigned long lastButtonDebug = 0;
-  if (millis() - lastButtonDebug > 2000) {
-    Serial.print("Reset button state: ");
+  // Handle menu navigation and timeouts
+  handleMenuNavigation();
+  
+  // Read battery voltage periodically
+  if (millis() - lastBatteryRead >= BATTERY_READ_INTERVAL) {
+    readBatteryVoltage();
+    lastBatteryRead = millis();
+  }
+  
+  // Debug: Print button states and battery info every 3 seconds
+  static unsigned long lastDebug = 0;
+  if (millis() - lastDebug > 3000) {
+    Serial.print("Reset: ");
     Serial.print(digitalRead(RESET_BUTTON_PIN) ? "H" : "L");
-    
-    // Additional debug info for processed state
-    Serial.print(" | Processed: ");
-    Serial.print(resetButtonProcessed ? "Y" : "N");
+    Serial.print(" | Menu: ");
+    Serial.print(digitalRead(MENU_BUTTON_PIN) ? "H" : "L");
+    Serial.print(" | Mode: ");
+    Serial.print(currentMenu == MENU_NORMAL ? "NORMAL" : 
+                currentMenu == MENU_BATTERY ? "BATTERY" : "SYSTEM");
+    Serial.print(" | Battery: ");
+    Serial.print(batteryVoltage, 2);
+    Serial.print("V (");
+    Serial.print(batteryPercentage);
+    Serial.print("%)");
     
     // GPIOViewer reminder
     if (wifiConnected && !isAPMode) {
@@ -379,14 +505,16 @@ void loop()
     }
     
     Serial.println();
-    lastButtonDebug = millis();
+    lastDebug = millis();
   }
   
-  // Check if it's time to change panel (auto-cycle mode)
-  unsigned long currentInterval = AUTO_CYCLE_INTERVAL;
-  if (millis() - lastDisplayChange >= currentInterval)
-  {
-    cyclePanels();
+  // Check if it's time to change panel (only in normal auto-cycle mode)
+  if (currentMenu == MENU_NORMAL) {
+    unsigned long currentInterval = AUTO_CYCLE_INTERVAL;
+    if (millis() - lastDisplayChange >= currentInterval)
+    {
+      cyclePanels();
+    }
   }
 
   // Periodically check WiFi status
@@ -1041,6 +1169,197 @@ void displayModeMessage(const char* message, const char* submessage) {
   delay(2000); // Show the message for 2 seconds
 }
 
+// Read battery voltage and calculate percentage
+void readBatteryVoltage() {
+  // Take multiple samples for stable reading
+  long adcSum = 0;
+  for (int i = 0; i < BATTERY_SAMPLE_COUNT; i++) {
+    adcSum += analogRead(BATTERY_ADC_PIN);
+    delay(1); // Small delay between samples
+  }
+  
+  // Calculate average ADC reading
+  int avgADC = adcSum / BATTERY_SAMPLE_COUNT;
+  
+  // Convert ADC reading to voltage
+  // ESP32-C3 ADC reference is 3.3V with 12-bit resolution (0-4095)
+  float adcVoltage = (avgADC / 4095.0) * 3.3;
+  
+  // Apply voltage divider ratio to get actual battery voltage
+  batteryVoltage = adcVoltage * VOLTAGE_DIVIDER_RATIO;
+  
+  // Calculate battery percentage
+  batteryPercentage = map(constrain(batteryVoltage * 100, BATTERY_MIN_VOLTAGE * 100, BATTERY_MAX_VOLTAGE * 100), 
+                         BATTERY_MIN_VOLTAGE * 100, BATTERY_MAX_VOLTAGE * 100, 0, 100);
+  
+  // Ensure percentage is within bounds
+  batteryPercentage = constrain(batteryPercentage, 0, 100);
+}
+
+// Menu button handling with debouncing
+void checkMenuButton() {
+  unsigned long currentTime = millis();
+  
+  // Read current button state
+  bool menuButtonState = digitalRead(MENU_BUTTON_PIN);
+  
+  // Menu Button Logic
+  if (menuButtonState != menuButtonLastState) {
+    menuButtonLastChange = currentTime;
+    menuButtonProcessed = false;
+    Serial.print("Menu button state changed to: ");
+    Serial.println(menuButtonState ? "HIGH" : "LOW");
+  }
+  
+  if (!menuButtonProcessed && (currentTime - menuButtonLastChange) > BUTTON_DEBOUNCE_DELAY) {
+    if (menuButtonState == LOW && menuButtonLastState == HIGH) {
+      // Button press detected (falling edge after debounce)
+      Serial.println("MENU BUTTON PRESSED!");
+      menuButtonProcessed = true;
+      lastMenuActivity = currentTime;
+      
+      // Toggle between menu modes
+      switch (currentMenu) {
+        case MENU_NORMAL:
+          currentMenu = MENU_BATTERY;
+          Serial.println("Entered BATTERY menu");
+          displayBatteryPanel();
+          break;
+        case MENU_BATTERY:
+          currentMenu = MENU_SYSTEM;
+          Serial.println("Entered SYSTEM menu");
+          displaySystemInfoPanel();
+          break;
+        case MENU_SYSTEM:
+          currentMenu = MENU_NORMAL;
+          Serial.println("Returned to NORMAL mode");
+          displayModeMessage("Normal Mode", "Auto-cycling panels");
+          break;
+      }
+    }
+  }
+  menuButtonLastState = menuButtonState;
+}
+
+// Handle menu navigation and timeouts
+void handleMenuNavigation() {
+  unsigned long currentTime = millis();
+  
+  // Check for menu timeout (return to normal mode after inactivity)
+  if (currentMenu != MENU_NORMAL && (currentTime - lastMenuActivity) > MENU_TIMEOUT) {
+    Serial.println("Menu timeout - returning to normal mode");
+    currentMenu = MENU_NORMAL;
+    displayModeMessage("Timeout", "Returning to normal");
+    lastDisplayChange = currentTime; // Reset display timer
+  }
+  
+  // Update menu displays if in menu mode
+  static unsigned long lastMenuUpdate = 0;
+  if (currentMenu != MENU_NORMAL && (currentTime - lastMenuUpdate) > 1000) {
+    switch (currentMenu) {
+      case MENU_BATTERY:
+        displayBatteryPanel();
+        break;
+      case MENU_SYSTEM:
+        displaySystemInfoPanel();
+        break;
+      default:
+        break;
+    }
+    lastMenuUpdate = currentTime;
+  }
+}
+
+// Display battery information panel
+void displayBatteryPanel() {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  
+  // Title
+  display.setTextSize(1);
+  display.drawRect(0, 0, 128, 12, SSD1306_WHITE);
+  display.fillRect(1, 1, 126, 10, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setCursor(40, 3);
+  display.print("Battery");
+  display.setTextColor(SSD1306_WHITE);
+  
+  // Battery voltage
+  display.setTextSize(1);
+  display.setCursor(5, 18);
+  display.print("Voltage: ");
+  display.print(batteryVoltage, 2);
+  display.print("V");
+  
+  // Battery percentage
+  display.setCursor(5, 30);
+  display.print("Level: ");
+  display.print(batteryPercentage);
+  display.print("%");
+  
+  // Battery bar indicator
+  display.drawRect(5, 42, 100, 10, SSD1306_WHITE);
+  int barWidth = map(batteryPercentage, 0, 100, 0, 98);
+  display.fillRect(6, 43, barWidth, 8, SSD1306_WHITE);
+  
+  // Battery status text
+  display.setCursor(5, 55);
+  if (batteryPercentage > 75) {
+    display.print("Status: Full");
+  } else if (batteryPercentage > 50) {
+    display.print("Status: Good");
+  } else if (batteryPercentage > 25) {
+    display.print("Status: Low");
+  } else {
+    display.print("Status: Critical");
+  }
+  
+  display.display();
+}
+
+// Display system information panel
+void displaySystemInfoPanel() {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  
+  // Title
+  display.setTextSize(1);
+  display.drawRect(0, 0, 128, 12, SSD1306_WHITE);
+  display.fillRect(1, 1, 126, 10, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setCursor(45, 3);
+  display.print("System");
+  display.setTextColor(SSD1306_WHITE);
+  
+  // System information
+  display.setCursor(2, 16);
+  display.print("Uptime: ");
+  unsigned long uptime = millis() / 1000;
+  display.print(uptime / 3600);
+  display.print("h ");
+  display.print((uptime % 3600) / 60);
+  display.print("m");
+  
+  display.setCursor(2, 26);
+  display.print("Free Heap: ");
+  display.print(ESP.getFreeHeap());
+  
+  display.setCursor(2, 36);
+  display.print("CPU: ESP32-C3");
+  
+  display.setCursor(2, 46);
+  display.print("Flash: ");
+  display.print(ESP.getFlashChipSize() / 1024 / 1024);
+  display.print("MB");
+  
+  display.setCursor(2, 56);
+  display.print("Memes: ");
+  display.print(TOTAL_MEMES);
+  display.print(" loaded");
+  
+  display.display();
+}
+
 // Reset button handling with debouncing
 void checkResetButton() {
   unsigned long currentTime = millis();
@@ -1068,4 +1387,61 @@ void checkResetButton() {
     }
   }
   resetButtonLastState = resetButtonState;
+}
+
+// Onboard button handling - currently just for testing/boot mode
+void checkOnboardButton() {
+  unsigned long currentTime = millis();
+  
+  // Read current button state
+  bool onboardButtonState = digitalRead(ONBOARD_BUTTON_PIN);
+  
+  // Onboard Button Logic
+  if (onboardButtonState != onboardButtonLastState) {
+    onboardButtonLastChange = currentTime;
+    onboardButtonProcessed = false;
+    Serial.print("Onboard button state changed to: ");
+    Serial.println(onboardButtonState ? "HIGH" : "LOW");
+  }
+  
+  if (!onboardButtonProcessed && (currentTime - onboardButtonLastChange) > BUTTON_DEBOUNCE_DELAY) {
+    if (onboardButtonState == LOW && onboardButtonLastState == HIGH) {
+      // Button press detected (falling edge after debounce)
+      Serial.println("ONBOARD BUTTON PRESSED!");
+      onboardButtonProcessed = true;
+      
+      // For testing: Immediately show system info panel
+      displaySystemInfoPanel();
+      Serial.println("Displayed system information panel");
+    }
+  }
+  onboardButtonLastState = onboardButtonState;
+}
+
+// LED control - flash LED briefly
+void flashLED() {
+  digitalWrite(ONBOARD_LED_PIN, HIGH);
+  delay(LED_FLASH_DURATION);
+  digitalWrite(ONBOARD_LED_PIN, LOW);
+}
+
+// LED control - update LED state based on conditions
+void updateLED() {
+  // Example: Flash LED quickly if battery is low
+  if (batteryPercentage < 20) {
+    // Flash LED rapidly (5 times per second)
+    const int flashInterval = 200; // 200ms on/off
+    static unsigned long lastFlashTime = 0;
+    static bool ledState = false;
+    
+    unsigned long currentTime = millis();
+    if (currentTime - lastFlashTime >= flashInterval) {
+      ledState = !ledState;
+      digitalWrite(ONBOARD_LED_PIN, ledState ? HIGH : LOW);
+      lastFlashTime = currentTime;
+    }
+  } else {
+    // Ensure LED is off if battery is not low
+    digitalWrite(ONBOARD_LED_PIN, LOW);
+  }
 }

@@ -1,0 +1,23 @@
+[wokwi]
+version = 1
+firmware = '.pio/build/esp32c3/firmware.bin'
+elf = '.pio/build/esp32c3/firmware.elf'
+
+# Enable serial port forwarding for debugging
+rfc2217ServerPort = 4000
+
+# IoT Gateway configuration for WiFi simulation
+[[net.forward]]
+# Forward local port 8080 to port 8080 on ESP32 (for GPIOViewer web interface)
+from = "localhost:8080"
+to = "target:8080"
+
+[[net.forward]]
+# Forward local port 3232 to port 3232 on ESP32 (for OTA updates)
+from = "localhost:3232"
+to = "target:3232"
+
+[[net.forward]]
+# Forward local port 80 to port 80 on ESP32 (for any web server functionality)
+from = "localhost:8180"
+to = "target:80"

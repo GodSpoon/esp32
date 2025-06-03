@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "author": "ESP32-C3 Microscreen Project",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-c3",
+      "id": "esp32c3",
+      "top": 96,
+      "left": 192,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-ssd1306",
+      "id": "oled_display",
+      "top": 96,
+      "left": 432,
+      "attrs": {
+        "width": "128",
+        "height": "64"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "menu_button",
+      "top": 288,
+      "left": 96,
+      "attrs": {
+        "color": "blue"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "reset_button",
+      "top": 288,
+      "left": 240,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "voltage_divider_r1",
+      "top": 192,
+      "left": 48,
+      "attrs": {
+        "value": "10000"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "voltage_divider_r2",
+      "top": 240,
+      "left": 48,
+      "attrs": {
+        "value": "10000"
+      }
+    },
+    {
+      "type": "wokwi-battery",
+      "id": "lipo_battery",
+      "top": 144,
+      "left": 24,
+      "attrs": {
+        "voltage": "3.7"
+      }
+    }
+  ],
+  "connections": [
+    ["esp32c3:GPIO6", "oled_display:SDA", "green", ["h0"]],
+    ["esp32c3:GPIO7", "oled_display:SCL", "blue", ["h0"]],
+    ["esp32c3:3V3", "oled_display:VCC", "red", ["h0"]],
+    ["esp32c3:GND.2", "oled_display:GND", "black", ["h0"]],
+    ["esp32c3:GPIO2", "menu_button:1.l", "yellow", ["h0"]],
+    ["menu_button:2.l", "esp32c3:GND.1", "black", ["v0"]],
+    ["esp32c3:GPIO3", "reset_button:1.l", "orange", ["h0"]],
+    ["reset_button:2.l", "esp32c3:GND.1", "black", ["v0"]],
+    ["lipo_battery:+", "voltage_divider_r1:1", "red", ["v0"]],
+    ["voltage_divider_r1:2", "voltage_divider_r2:1", "gray", ["v0"]],
+    ["voltage_divider_r2:2", "esp32c3:GND.1", "black", ["v0"]],
+    ["voltage_divider_r1:2", "esp32c3:GPIO0", "purple", ["v0"]],
+    ["lipo_battery:-", "esp32c3:GND.1", "black", ["v0"]]
+  ],
+  "dependencies": {}
+}
