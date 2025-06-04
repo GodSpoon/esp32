@@ -1,0 +1,11 @@
+https://github.com/chegewara/esp32-usb-host.git
+me-no-dev/ESP Async WebServer@^1.2.4
+https://github.com/lorol/LITTLEFS.git
+adafruit/Adafruit Unified Sensor@^1.1.14
+tzapu/WiFiManager@^2.0.17
+bblanchon/ArduinoJson@^7.2.1
+https://github.com/mathieucarbou/ESPAsyncWebServer.git
+arduino-libraries/NTPClient@^3.2.1
+https://github.com/mathieucarbou/AsyncTCP.git
+adafruit/Adafruit GFX Library@^1.12.1
+fastled/FastLED@^3.8.0

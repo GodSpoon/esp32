@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-S3 Office Hub</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .nav-link {
+            color: rgba(255,255,255,0.8) !important;
+            transition: all 0.3s ease;
+        }
+        .nav-link:hover, .nav-link.active {
+            color: white !important;
+            background-color: rgba(255,255,255,0.1);
+            border-radius: 8px;
+        }
+        .content-area {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            transition: transform 0.2s ease-in-out;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+        }
+        .temp-gauge {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto;
+            position: relative;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, #28a745 0%, #ffc107 50%, #dc3545 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .temp-value {
+            background: white;
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        #colorPicker {
+            width: 100px;
+            height: 50px;
+            border: none;
+            border-radius: 8px;
+        }
+        .wifi-signal {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+        }
+        .signal-bar {
+            display: inline-block;
+            width: 3px;
+            margin: 0 1px;
+            background: #28a745;
+            border-radius: 1px;
+        }
+        .section {
+            display: none;
+        }
+        .section.active {
+            display: block;
+        }
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            background: white;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-connected { background-color: #28a745; }
+        .status-disconnected { background-color: #dc3545; }
+        .status-warning { background-color: #ffc107; }
+        .file-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .file-item:hover {
+            background-color: #f8f9fa;
+        }
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            transition: border-color 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f8f9ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <h4 class="text-white text-center mb-4">
+                        <i class="fas fa-microchip"></i> ESP32-S3 Hub
+                    </h4>
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#" onclick="showSection('dashboard', event)">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('leds', event)">
+                                <i class="fas fa-lightbulb"></i> LED Controls
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('usb', event)">
+                                <i class="fas fa-usb"></i> USB Storage
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('wifi', event)">
+                                <i class="fas fa-wifi"></i> WiFi Scanner
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('clock', event)">
+                                <i class="fas fa-clock"></i> Clock & Alerts
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('temperature', event)">
+                                <i class="fas fa-thermometer-half"></i> Temperature
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('settings', event)">
+                                <i class="fas fa-cog"></i> Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Main content -->
+            <div class="col-md-9 ms-sm-auto col-lg-10 px-md-4 content-area">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2" id="pageTitle">Dashboard</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-sm btn-outline-secondary me-2" onclick="refreshData()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#" onclick="exportLogs('temperature')">Temperature Log</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="exportLogs('wifi')">WiFi Scan Log</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="exportConfig()">Configuration</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dashboard Section -->
+                <div id="dashboard-section" class="section active">
+                    <div class="row">
+                        <div class="col-md-3 mb-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">System Uptime</h5>
+                                    <h3 id="uptime" class="text-primary">--</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">Wi-Fi Status</h5>
+                                    <h3 id="wifi-status" class="text-success">--</h3>
+                                    <small id="wifi-details" class="text-muted">--</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">Temperature</h5>
+                                    <div class="temp-gauge">
+                                        <div class="temp-value">
+                                            <span id="current-temp">--°C</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">USB Storage</h5>
+                                    <h3 id="usb-status" class="text-warning">--</h3>
+                                    <small id="usb-details" class="text-muted">--</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-memory"></i> System Information</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <strong>Chip Model:</strong><br>
+                                            <span id="chip-model">ESP32-S3</span>
+                                        </div>
+                                        <div class="col-6">
+                                            <strong>Free Heap:</strong><br>
+                                            <span id="free-heap">-- KB</span>
+                                        </div>
+                                        <div class="col-6 mt-2">
+                                            <strong>Flash Size:</strong><br>
+                                            <span id="flash-size">8 MB</span>
+                                        </div>
+                                        <div class="col-6 mt-2">
+                                            <strong>PSRAM:</strong><br>
+                                            <span id="psram-size">2 MB</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-clock"></i> Current Time</h5>
+                                </div>
+                                <div class="card-body text-center">
+                                    <h2 id="current-time">--:--:--</h2>
+                                    <p id="current-date" class="text-muted">--</p>
+                                    <small id="ntp-status" class="text-success">NTP Synchronized</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LED Controls Section -->
+                <div id="leds-section" class="section">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-palette"></i> RGB LED Control</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="colorPicker" class="form-label">Color</label><br>
+                                        <input type="color" id="colorPicker" value="#ff0000" onchange="updateRGBColor()">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="rgbMode" class="form-label">Mode</label>
+                                        <select class="form-select" id="rgbMode" onchange="updateRGBMode()">
+                                            <option value="solid">Solid Color</option>
+                                            <option value="blink">Blink</option>
+                                            <option value="pulse">Pulse</option>
+                                            <option value="rainbow">Rainbow</option>
+                                            <option value="breathing">Breathing</option>
+                                            <option value="fade">Fade</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="rgbBrightness" class="form-label">RGB Brightness: <span id="rgbBrightnessValue">128</span></label>
+                                        <input type="range" class="form-range" min="0" max="255" value="128" id="rgbBrightness" oninput="updateRGBBrightness()">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-lightbulb"></i> Large LED Control</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="largeLedToggle" onchange="toggleLargeLED()">
+                                            <label class="form-check-label" for="largeLedToggle">
+                                                LED Power
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="brightnessSlider" class="form-label">Brightness: <span id="brightnessValue">255</span></label>
+                                        <input type="range" class="form-range" min="0" max="255" value="255" id="brightnessSlider" oninput="updateBrightness()">
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-primary w-100" onclick="setPresetColor('#FF0000')">Red</button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-success w-100" onclick="setPresetColor('#00FF00')">Green</button>
+                                        </div>
+                                        <div class="col-6 mt-2">
+                                            <button class="btn btn-outline-info w-100" onclick="setPresetColor('#0000FF')">Blue</button>
+                                        </div>
+                                        <div class="col-6 mt-2">
+                                            <button class="btn btn-outline-warning w-100" onclick="setPresetColor('#FFFF00')">Yellow</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- USB Storage Section -->
+                <div id="usb-section" class="section">
+                    <div class="row">
+                        <div class="col-md-12 mb-4">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5><i class="fas fa-usb"></i> USB Storage Management</h5>
+                                    <div>
+                                        <span class="status-indicator" id="usbStatusIndicator"></span>
+                                        <span id="usbConnectionStatus">Not Connected</span>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div id="usbConnectedContent" style="display: none;">
+                                        <div class="row mb-3">
+                                            <div class="col-md-4">
+                                                <strong>Device Info:</strong><br>
+                                                <span id="usbDeviceInfo">--</span>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <strong>Total Space:</strong><br>
+                                                <span id="usbTotalSpace">--</span>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <strong>Free Space:</strong><br>
+                                                <span id="usbFreeSpace">--</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="upload-area mb-3" id="uploadArea">
+                                            <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
+                                            <p>Drag & drop files here or <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Browse</button></p>
+                                            <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFileUpload(event)">
+                                        </div>
+                                        
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <h6>Files & Folders</h6>
+                                            <div>
+                                                <button class="btn btn-sm btn-outline-primary" onclick="refreshFileList()">
+                                                    <i class="fas fa-sync-alt"></i> Refresh
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-success" onclick="createFolder()">
+                                                    <i class="fas fa-folder-plus"></i> New Folder
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <div id="fileList" class="border rounded" style="max-height: 300px; overflow-y: auto;">
+                                            <!-- File list will be populated here -->
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="usbDisconnectedContent">
+                                        <div class="text-center text-muted">
+                                            <i class="fas fa-usb fa-4x mb-3"></i>
+                                            <h5>No USB Device Connected</h5>
+                                            <p>Connect a USB storage device to access file management features.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WiFi Scanner Section -->
+                <div id="wifi-section" class="section">
+                    <div class="row">
+                        <div class="col-md-12 mb-4">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5><i class="fas fa-wifi"></i> WiFi Networks</h5>
+                                    <button class="btn btn-sm btn-primary" onclick="performWiFiScan()">
+                                        <i class="fas fa-search"></i> Scan Networks
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div id="wifiNetworksList">
+                                        <!-- WiFi networks will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-history"></i> Scan History</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="log-container" id="wifiScanLog">
+                                        <!-- WiFi scan history will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-bookmark"></i> Saved Networks</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="savedNetworksList">
+                                        <!-- Saved networks will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Clock & Alerts Section -->
+                <div id="clock-section" class="section">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-clock"></i> Time & Date</h5>
+                                </div>
+                                <div class="card-body text-center">
+                                    <h1 id="clockTime" class="display-4">--:--:--</h1>
+                                    <h4 id="clockDate" class="text-muted">--</h4>
+                                    <div class="mt-3">
+                                        <small class="text-success">
+                                            <i class="fas fa-satellite"></i> NTP Synchronized
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-bell"></i> Alert Settings</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="hourlyAlert" onchange="toggleHourlyAlert()">
+                                        <label class="form-check-label" for="hourlyAlert">
+                                            Hourly Alert (LED Flash)
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="tempAlert" onchange="toggleTempAlert()">
+                                        <label class="form-check-label" for="tempAlert">
+                                            High Temperature Alert
+                                        </label>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="tempThreshold" class="form-label">Temperature Threshold (°C)</label>
+                                        <input type="number" class="form-control" id="tempThreshold" value="35" onchange="updateTempThreshold()">
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="wifiAlert" onchange="toggleWiFiAlert()">
+                                        <label class="form-check-label" for="wifiAlert">
+                                            WiFi Disconnect Alert
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Temperature Section -->
+                <div id="temperature-section" class="section">
+                    <div class="row">
+                        <div class="col-md-4 mb-4">
+                            <div class="card text-center">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-thermometer-half"></i> Current Temperature</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="temp-gauge mb-3">
+                                        <div class="temp-value">
+                                            <span id="currentTempDisplay">--°C</span>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <small class="text-muted">Min Today</small><br>
+                                            <strong id="minTemp">--°C</strong>
+                                        </div>
+                                        <div class="col-6">
+                                            <small class="text-muted">Max Today</small><br>
+                                            <strong id="maxTemp">--°C</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-8 mb-4">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5><i class="fas fa-chart-line"></i> Temperature Trend</h5>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="exportTemperatureData()">
+                                            <i class="fas fa-download"></i> Export
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="tempChart" width="400" height="200"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-list"></i> Temperature Log</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="log-container" id="temperatureLog">
+                                        <!-- Temperature log entries will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Section -->
+                <div id="settings-section" class="section">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-cog"></i> System Settings</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="hostname" class="form-label">Hostname</label>
+                                        <input type="text" class="form-control" id="hostname" value="esp32-office-hub" onchange="updateHostname()">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="timezone" class="form-label">Timezone</label>
+                                        <select class="form-select" id="timezone" onchange="updateTimezone()">
+                                            <option value="EST">Eastern (EST)</option>
+                                            <option value="CST">Central (CST)</option>
+                                            <option value="MST">Mountain (MST)</option>
+                                            <option value="PST">Pacific (PST)</option>
+                                            <option value="UTC">UTC</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="ntpServer" class="form-label">NTP Server</label>
+                                        <input type="text" class="form-control" id="ntpServer" value="pool.ntp.org" onchange="updateNTPServer()">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-save"></i> Configuration Management</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-grid gap-2">
+                                        <button class="btn btn-primary" onclick="saveConfiguration()">
+                                            <i class="fas fa-save"></i> Save Configuration
+                                        </button>
+                                        <button class="btn btn-secondary" onclick="loadConfiguration()">
+                                            <i class="fas fa-upload"></i> Load Configuration
+                                        </button>
+                                        <button class="btn btn-warning" onclick="resetToDefaults()">
+                                            <i class="fas fa-undo"></i> Reset to Defaults
+                                        </button>
+                                        <button class="btn btn-danger" onclick="restartDevice()">
+                                            <i class="fas fa-power-off"></i> Restart Device
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-info-circle"></i> Device Information</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <strong>Firmware Version:</strong><br>
+                                            <span id="firmwareVersion">v1.0.0</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Build Date:</strong><br>
+                                            <span id="buildDate">--</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>MAC Address:</strong><br>
+                                            <span id="macAddress">--</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let socket;
+        let isConnected = false;
+        
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            socket = new WebSocket(protocol + '//' + window.location.hostname + '/ws');
+            
+            socket.onopen = function(event) {
+                console.log('WebSocket connected');
+                isConnected = true;
+                refreshData();
+                updateConnectionStatus(true);
+            };
+            
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            socket.onclose = function(event) {
+                console.log('WebSocket disconnected, attempting to reconnect...');
+                isConnected = false;
+                updateConnectionStatus(false);
+                setTimeout(initWebSocket, 3000);
+            };
+            
+            socket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                isConnected = false;
+                updateConnectionStatus(false);
+            };
+        }
+        
+        function handleWebSocketMessage(data) {
+            switch(data.type) {
+                case 'status':
+                    updateDashboard(data);
+                    break;
+                case 'temperature':
+                    updateTemperature(data);
+                    break;
+                case 'wifi_scan':
+                    updateWiFiScan(data);
+                    break;
+                case 'usb_status':
+                    updateUSBStatus(data);
+                    break;
+                case 'file_list':
+                    updateFileList(data);
+                    break;
+                default:
+                    console.log('Unknown message type:', data.type);
+            }
+        }
+        
+        function updateConnectionStatus(connected) {
+            // Update connection indicators in UI
+        }
+        
+        function showSection(sectionName, event) {
+            // Hide all sections
+            const sections = document.querySelectorAll('.section');
+            sections.forEach(section => section.style.display = 'none');
+            
+            // Show selected section
+            const targetSection = document.getElementById(sectionName + '-section');
+            if (targetSection) {
+                targetSection.style.display = 'block';
+                targetSection.classList.add('active');
+            }
+            
+            // Update page title
+            const titles = {
+                'dashboard': 'Dashboard',
+                'leds': 'LED Controls',
+                'usb': 'USB Storage',
+                'wifi': 'WiFi Scanner',
+                'clock': 'Clock & Alerts',
+                'temperature': 'Temperature Monitor',
+                'settings': 'Settings'
+            };
+            document.getElementById('pageTitle').textContent = titles[sectionName] || 'Dashboard';
+            
+            // Update active nav link
+            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            
+            // Load section-specific data
+            switch(sectionName) {
+                case 'temperature':
+                    loadTemperatureData();
+                    break;
+                case 'wifi':
+                    loadWiFiData();
+                    break;
+                case 'usb':
+                    loadUSBData();
+                    break;
+            }
+        }
+        
+        function sendWebSocketMessage(message) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+                return true;
+            }
+            return false;
+        }
+        
+        // LED Control Functions
+        function updateRGBColor() {
+            const color = document.getElementById('colorPicker').value;
+            sendWebSocketMessage({
+                type: 'rgb_color',
+                color: color
+            });
+        }
+        
+        function updateRGBMode() {
+            const mode = document.getElementById('rgbMode').value;
+            sendWebSocketMessage({
+                type: 'rgb_mode',
+                mode: mode
+            });
+        }
+        
+        function updateRGBBrightness() {
+            const brightness = document.getElementById('rgbBrightness').value;
+            document.getElementById('rgbBrightnessValue').textContent = brightness;
+            sendWebSocketMessage({
+                type: 'rgb_brightness',
+                value: parseInt(brightness)
+            });
+        }
+        
+        function toggleLargeLED() {
+            const state = document.getElementById('largeLedToggle').checked;
+            sendWebSocketMessage({
+                type: 'large_led',
+                state: state
+            });
+        }
+        
+        function updateBrightness() {
+            const brightness = document.getElementById('brightnessSlider').value;
+            document.getElementById('brightnessValue').textContent = brightness;
+            sendWebSocketMessage({
+                type: 'brightness',
+                value: parseInt(brightness)
+            });
+        }
+        
+        function setPresetColor(color) {
+            document.getElementById('colorPicker').value = color;
+            updateRGBColor();
+        }
+        
+        // Data refresh functions
+        function refreshData() {
+            sendWebSocketMessage({type: 'get_status'});
+        }
+        
+        function updateDashboard(data) {
+            document.getElementById('uptime').textContent = data.uptime || '--';
+            document.getElementById('wifi-status').textContent = data.wifi || '--';
+            document.getElementById('current-temp').textContent = data.temperature + '°C' || '--°C';
+            document.getElementById('usb-status').textContent = data.usb || '--';
+            document.getElementById('free-heap').textContent = Math.round((data.free_heap || 0) / 1024) + ' KB';
+            document.getElementById('chip-model').textContent = data.chip_model || 'ESP32-S3';
+            
+            // Update time
+            updateCurrentTime();
+        }
+        
+        function updateCurrentTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString();
+            const dateStr = now.toLocaleDateString();
+            
+            document.getElementById('current-time').textContent = timeStr;
+            document.getElementById('current-date').textContent = dateStr;
+            document.getElementById('clockTime').textContent = timeStr;
+            document.getElementById('clockDate').textContent = dateStr;
+        }
+        
+        // USB Functions
+        function refreshFileList() {
+            sendWebSocketMessage({type: 'usb_list_files'});
+        }
+        
+        function handleFileUpload(event) {
+            const files = event.target.files;
+            for (let file of files) {
+                uploadFile(file);
+            }
+        }
+        
+        function uploadFile(file) {
+            // Implementation for file upload
+            console.log('Uploading file:', file.name);
+        }
+        
+        // WiFi Functions
+        function performWiFiScan() {
+            sendWebSocketMessage({type: 'wifi_scan'});
+        }
+        
+        // Settings Functions
+        function saveConfiguration() {
+            sendWebSocketMessage({type: 'save_config'});
+        }
+        
+        function loadConfiguration() {
+            sendWebSocketMessage({type: 'load_config'});
+        }
+        
+        function resetToDefaults() {
+            if (confirm('Are you sure you want to reset all settings to defaults?')) {
+                sendWebSocketMessage({type: 'reset_defaults'});
+            }
+        }
+        
+        function restartDevice() {
+            if (confirm('Are you sure you want to restart the device?')) {
+                sendWebSocketMessage({type: 'restart'});
+            }
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', function() {
+            initWebSocket();
+            updateCurrentTime();
+            setInterval(updateCurrentTime, 1000);
+        });
+    </script>
+</body>
+</html>

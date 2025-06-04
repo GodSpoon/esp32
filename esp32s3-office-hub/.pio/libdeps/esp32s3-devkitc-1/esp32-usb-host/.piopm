@@ -1,0 +1,1 @@
+{"type": "library", "name": "esp32-usb-host", "version": "0.0.0+20250530175138.sha.0de63ac", "spec": {"owner": null, "id": null, "name": "esp32-usb-host", "requirements": null, "uri": "git+https://github.com/chegewara/esp32-usb-host.git"}}

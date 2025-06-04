@@ -1,0 +1,25 @@
+{
+  "saved_networks": [
+    {
+      "ssid": "Office_WiFi_5G",
+      "password": "",
+      "priority": 1,
+      "auto_connect": true,
+      "last_connected": 0
+    },
+    {
+      "ssid": "Office_WiFi_2.4G",
+      "password": "",
+      "priority": 2,
+      "auto_connect": true,
+      "last_connected": 0
+    }
+  ],
+  "scan_results": [],
+  "current_network": {
+    "ssid": "",
+    "rssi": 0,
+    "channel": 0,
+    "connected_time": 0
+  }
+}

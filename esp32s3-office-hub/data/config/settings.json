@@ -1,0 +1,36 @@
+{
+  "system": {
+    "hostname": "esp32-office-hub",
+    "timezone": "EST",
+    "ntp_server": "pool.ntp.org",
+    "auto_brightness": true,
+    "temperature_unit": "celsius"
+  },
+  "network": {
+    "wifi_auto_connect": true,
+    "wifi_timeout": 30000,
+    "hotspot_enabled": true,
+    "hotspot_ssid": "ESP32-Office-Hub",
+    "hotspot_password": "office123"
+  },
+  "alerts": {
+    "hourly_enabled": true,
+    "temperature_threshold": 35.0,
+    "high_temp_alert": true,
+    "low_temp_alert": false,
+    "wifi_disconnect_alert": true
+  },
+  "leds": {
+    "rgb_brightness": 128,
+    "large_brightness": 255,
+    "default_mode": "solid",
+    "default_color": "#FF0000",
+    "power_on_state": true
+  },
+  "logging": {
+    "temp_log_interval": 300000,
+    "wifi_scan_interval": 300000,
+    "log_rotation_size": 10000,
+    "debug_level": 3
+  }
+}

@@ -1,0 +1,33 @@
+This directory is intended for project header files.
+
+A header file is a file containing C declarations and macro definitions
+to be shared between several project source files. You request the use of a
+header file in your project by including it, with the C preprocessing
+directive `#include`.
+
+```src/main.c
+
+#include "project.h"
+
+void setup() {
+  // some code
+}
+
+void loop() {
+  // some code
+}
+```
+
+Including a header file produces the same results as copying the header file
+into each source file that uses it. Such copying would be time-consuming
+and error-prone. With the include mechanism, a header file need only be
+written once; moreover, an `#include` directive can refer to the same
+header file in several source files. A header file can itself include
+other header files. One header file can even include several versions of
+the same header file. The preprocessing directive `#include` causes the
+inclusion of another file, identified by its parameter, into the current
+source file at the point where the directive appears.
+
+For the ESP32-S3 Office Hub project, header files include:
+- usb_host.h - USB OTG host management functions
+- (Additional headers can be added here for project expansion)
